@@ -1,0 +1,49 @@
+#!/bin/bash
+
+
+# exit on error
+set -e
+
+USER="db"
+KEY_FILENAME="id_rsa"
+PASSPHRASE=""
+
+if ! getent group "$USER" &>/dev/null; then
+    echo -n ":: creating group $USER..."
+    groupadd -r -f "$USER"
+    echo "done"
+fi
+
+if ! id "$USER" &>/dev/null; then
+    echo -n ":: creating user $USER..."
+    useradd -r -m -s /bin/bash -g "$USER" $USER
+    echo "done"
+    echo -n ":: locking user $USER..."
+    passwd -l $USER &>/dev/null
+    echo "done"
+fi
+if [ ! -d /home/$USER/.ssh ]; then
+    echo -n ":: creating .ssh directory and keypair for user $USER..."
+    mkdir -p /home/$USER/.ssh
+    chown $USER:$USER /home/$USER/.ssh
+    chmod 700 /home/$USER/.ssh
+    # Generate SSH keypair
+    ssh-keygen -t rsa -b 4096 -C "$USER" -f "/home/$USER/.ssh/$KEY_FILENAME" -N "$PASSPHRASE"
+    echo "done"
+fi
+
+apt install -y postgresql postgresql-contrib
+
+exists=$(su - postgres -c "psql -tqc \"SELECT count(1) FROM pg_catalog.pg_user WHERE usename = '"$USER"'\"")
+if [ $exists = 0 ]; then
+    echo ":: creating postgres superuser $USER"
+    su - postgres -c "createuser --superuser $USER"
+fi
+exists=$(su - postgres -c "psql -lqt | cut -d \| -f 1 | grep -w $USER | wc -l")
+if [ $exists = 0 ]; then
+    echo ":: creating database for user $USER"
+    su - postgres -c "createdb -O $USER $USER"
+fi
+
+# lock postgres system account (use the just created superuser instead)
+passwd -l postgres

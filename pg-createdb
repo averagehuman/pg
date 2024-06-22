@@ -1,0 +1,37 @@
+#!/bin/bash
+
+PROJECT="$1"
+
+if [[ -z "$PROJECT" ]]; then
+    echo "project name required"
+    exit 1
+fi
+
+password=$(< /dev/urandom tr -dc 'A-Za-z0-9!%^*}(+=' | head -c 40)
+
+echo $password > .dbpass
+
+query="DB password is written to '.dbpass'. Do you want to continue creating a database and user with this password? (y/n): "
+
+read -p "$query" answer
+
+if [[ "$answer" =~ ^[Yy]$ ]]; then
+    echo ":: creating db $PROJECT"
+    temp_file=$(mktemp)
+    echo $temp_file
+    cat << EOF > $temp_file
+CREATE DATABASE $PROJECT;
+CREATE USER $PROJECT WITH PASSWORD '$password';
+ALTER ROLE $PROJECT SET client_encoding TO 'utf8';
+ALTER ROLE $PROJECT SET default_transaction_isolation TO 'read committed';
+ALTER ROLE $PROJECT SET timezone TO 'UTC';
+GRANT ALL PRIVILEGES ON DATABASE $PROJECT TO $PROJECT;
+EOF
+
+    #cat $temp_file
+    chown db:db $temp_file
+    su - db -c "psql -f $temp_file"
+    rm $temp_file
+else
+    exit 0
+fi
